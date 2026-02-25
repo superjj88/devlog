@@ -1,0 +1,3 @@
+[ollama]
+model = "dolphin3-8b-64k"  # או כל מודל שיש לך ב-Ollama
+
