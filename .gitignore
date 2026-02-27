@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.safetensors
+*.bin
+*.pt
+qwen3-tts-wrapper/.venv/
+models/
