@@ -1,3 +1,0 @@
-cd /home/razik/Documents/learning_projects/devlog/opencode_projects
-./opencode-start.sh MyNewProject
-
