@@ -37,9 +37,12 @@ class TTSDaemon:
         )
         print("[TTS] מודל TTS נטען ✅")
         
-        print("[TTS] טוען מודל STT (Whisper)...")
-        self.stt_model = whisper.load_model("base").to("cuda")
-        print("[TTS] מודל STT נטען ✅")
+        print("[STT] טוען מודל Faster-Whisper Turbo...")
+        from faster_whisper import WhisperModel
+        # מודל טורבו שרץ על כרטיס המסך עם המרה מהירה של Float16
+        self.stt_model = WhisperModel("large-v3-turbo", device="cuda", compute_type="float16")
+        print("[STT] מודל Faster-Whisper נטען ✅")
+
 
     def unload_models(self):
         print("[TTS] פורק מודלים...")
@@ -105,21 +108,31 @@ class TTSDaemon:
 
         return np.concatenate(frames)
 
-    def process_and_respond(self, audio_np):
-        """מתרגם, מייצר תשובה, ומנגן קול בעזרת aplay"""
-        # 1. תרגום שקוף לאנגלית
-        result = self.stt_model.transcribe(audio_np, language="he", task="translate")
-        english_text = result["text"].strip()
-        
-        if len(english_text) < 2: return
-        
-        print(f"[TTS] 🗣️  שמעתי (ותירגמתי): {english_text}")
 
-        # 2. ה"מוח" הזמני שלנו
-        bot_reply = f"I understood your Hebrew. You said: {english_text}."
+    def process_and_respond(self, audio_np):
+        print("[STT] ⏳ מפענח דיבור...")
+        start_time = time.time()
+        
+        # זיהוי ותרגום אופטימלי - אנחנו פוקדים עליו "לתרגם" לאנגלית
+        # faster-whisper דורש קודם לנרמל את המערך ל-Float32
+        segments, info = self.stt_model.transcribe(audio_np, task="translate")
+        
+        user_text = "".join([segment.text for segment in segments]).strip()
+        lang = info.language
+        
+        end_time = time.time()
+        
+        if len(user_text) < 2: return
+        print(f"[STT] 🗣️ זיהיתי ({lang}) תוך {end_time - start_time:.2f} שניות: {user_text}")
+
+        # ממשיכים כרגיל לתשובה של Qwen...
+        if lang == "he" or any("\u0590" <= c <= "\u05EA" for c in user_text):
+            bot_reply = f"You said something in Hebrew, but I can only speak English right now."
+        else:
+            bot_reply = f"You said: {user_text}"
+
         print(f"[TTS] 🤖 עונה: {bot_reply}")
 
-        # 3. יצירת הקול החדש
         audio_data, sample_rate = self.tts_model.generate_custom_voice(
             text=bot_reply,
             language="english",
@@ -127,12 +140,10 @@ class TTSDaemon:
         )
 
         print("[TTS] 🔊 מנגן תשובה...")
-        # נשמור את הקול לקובץ זמני וננגן עם aplay (הכי יציב שיש)
-        wav_data = audio_data[0]   # פשוט לקחת את זה ישר!
-        sf.write(TEMP_PLAY_FILE, wav_data, sample_rate, subtype='PCM_16')
-        
-        # מנגנים (hw:1,0 זה ה-UGREEN שלך ליציאת אוזניות)
-        subprocess.run(["aplay", "-q", TEMP_PLAY_FILE])
+        sf.write(TEMP_PLAY_FILE, audio_data[0], sample_rate, subtype='PCM_16')
+        subprocess.run(["aplay", "-q", TEMP_PLAY_FILE], stderr=subprocess.DEVNULL)
+
+
 
     def listen_loop(self):
         while self.is_active:
