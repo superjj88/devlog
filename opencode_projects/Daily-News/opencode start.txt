@@ -1,3 +1,0 @@
-cd /home/razik/Documents/opencode_projects
-./opencode-start.sh Daily-News
-

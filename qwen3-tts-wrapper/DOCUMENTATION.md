@@ -62,7 +62,35 @@ The Qwen3-TTS Wrapper is a voice assistant system that combines speech-to-text (
 6. **Start Script**: `start.sh`
    - Manages the complete application lifecycle
    - Handles process cleanup and environment setup
+6. **Start Script**: `start.sh`
    - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
+   - Manages the complete application lifecycle
+   - Handles process cleanup and environment setup
    - Handles process cleanup and environment setup
    - Implements silence detection to automatically end recordings
    - Supports Hebrew and English languages
