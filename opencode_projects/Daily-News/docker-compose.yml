@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  news-mvp:
+    build: .
+    network_mode: "host" 
+    environment:
+      - OLLAMA_BASE_URL=http://127.0.0.1:11434
+    volumes:
+      - ./config:/app/config
+      - ./cache:/app/cache
+      - ./outputs:/app/outputs
+    restart: "no"

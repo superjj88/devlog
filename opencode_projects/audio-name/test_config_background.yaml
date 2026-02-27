@@ -1,0 +1,9 @@
+base_name: "background"
+start_index: 1
+index_padding: 2
+time_format: "mm-ss"
+separator: " - "
+extensions:
+  - mp3
+  - wav
+  - flac

@@ -5,3 +5,6 @@ __pycache__/
 *.pt
 qwen3-tts-wrapper/.venv/
 models/
+
+opencode_projects/_sandbox/
+opencode_projects/.opencode/
