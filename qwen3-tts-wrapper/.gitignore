@@ -1,0 +1,88 @@
+# .gitignore for Qwen3-TTS Wrapper project
+# This file specifies intentionally untracked files that should be ignored by Git
+# See https://git-scm.com/docs/gitignore for more information
+
+# =============================================================================
+# SECURITY: Environment variables and secrets (per SECURITY.md)
+# Never commit files containing sensitive information or API keys
+# =============================================================================
+.env
+.env.local
+*.key
+*.pem
+
+# =============================================================================
+# AUDIO/MEDIA: Temporary audio and media files
+# Prevent heavy files from bloating the repository
+# =============================================================================
+*.wav
+*.mp3
+*.pcm
+/tmp/*
+
+# =============================================================================
+# PYTHON: Virtual environments and caches
+# Standard Python development environment files
+# =============================================================================
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+.pybuild/
+.pytest_cache/
+
+# =============================================================================
+# LOGS: Log files and system files
+# Prevent sensitive data and large log files from being committed
+# =============================================================================
+*.log
+/var/log/qwen3tts.log
+.DS_Store
+qwen3tts.sock
+
+# =============================================================================
+# MODELS: Model directories and weight files
+# Never upload large model weights to version control
+# =============================================================================
+1.7B-CustomVoice/
+*.bin
+*.pt
+*.safetensors
+
+# =============================================================================
+# IDE: IDE-specific files
+# Editor and IDE configuration files
+# =============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# =============================================================================
+# BUILD: Build artifacts and distribution files
+# Generated files from build processes
+# =============================================================================
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# =============================================================================
+# OS: Operating system files
+# Files created by various operating systems
+# =============================================================================
+.DS_Store
+Thumbs.db

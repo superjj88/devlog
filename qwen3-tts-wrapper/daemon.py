@@ -1,197 +1,219 @@
-# ~/Documents/learning_projects/devlog/qwen3-tts-wrapper/daemon.py
-import torch
-import whisper
-import gc
-import socket
-import threading
-import json
-import os
-import subprocess
-import numpy as np
-import time
-import soundfile as sf
-
-MODEL_DIR = "/mnt/storage/models/qwen3-tts"
-TTS_MODEL_PATH = f"{MODEL_DIR}/1.7B-CustomVoice"
-SOCKET_PATH = "/tmp/qwen3tts.sock"
-TEMP_PLAY_FILE = "/tmp/qwen_play.wav"
-
-SILENCE_THRESHOLD = 0.02  # סף שמע (אפשר להקטין ל-0.01 אם זה לא קולט אותך מספיק טוב)
-SILENCE_DURATION = 2.5    # כמה שניות של שקט מסמנות סוף משפט
-
-class TTSDaemon:
-    def __init__(self):
-        self.tts_model = None
-        self.stt_model = None
-        self.is_active = False
-        self.listen_thread = None
-
-    def load_models(self):
-        print("[TTS] טוען מודל Qwen-TTS...")
-        from qwen_tts import Qwen3TTSModel
-        
-        self.tts_model = Qwen3TTSModel.from_pretrained(
-            TTS_MODEL_PATH,
-            device_map="cuda",
-            dtype=torch.bfloat16,
-        )
-        print("[TTS] מודל TTS נטען ✅")
-        
-        print("[STT] טוען מודל Faster-Whisper Turbo...")
-        from faster_whisper import WhisperModel
-        # מודל טורבו שרץ על כרטיס המסך עם המרה מהירה של Float16
-        self.stt_model = WhisperModel("large-v3-turbo", device="cuda", compute_type="float16")
-        print("[STT] מודל Faster-Whisper נטען ✅")
-
-
-    def unload_models(self):
-        print("[TTS] פורק מודלים...")
-        self.is_active = False
-        if self.tts_model: del self.tts_model
-        if self.stt_model: del self.stt_model
-        gc.collect()
-        torch.cuda.empty_cache()
-
-    def listen_until_silence(self):
-        """קורא מהמיקרופון עם arecord ומנתח בזמן אמת ללא חסימה"""
-        print("[TTS] 🎤 מאזין... (דבר עכשיו, אפסיק כשתשתוק ל-2.5 שניות)")
-        
-        # מפעילים arecord שיזרוק את המידע החוצה כזרם
-        command = [
-            "arecord", "-D", "hw:1,0", "-q", "-t", "raw", 
-            "-f", "S16_LE", "-c", "1", "-r", "16000"
-        ]
-        
-        try:
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            print(f"[TTS] שגיאת הפעלת arecord: {e}")
-            return None
-
-        frames = []
-        silence_start = None
-        has_spoken = False
-        chunk_size = 4096  # קריאה של רבע שנייה בכל פעם
-
-        try:
-            while self.is_active:
-                # ה-read של Python יכול להיתקע אם הקובץ אינסופי, אז משתמשים ב-os.read ישירות לביצוע בטוח
-                raw_data = os.read(process.stdout.fileno(), chunk_size * 2)
-                
-                if not raw_data:
-                    break
-                
-                # ממירים ל-float32 מנורמל עבור Whisper
-                audio_chunk = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32) / 32768.0
-                volume = np.abs(audio_chunk).mean()
-                
-                frames.append(audio_chunk)
-
-                if volume > SILENCE_THRESHOLD:
-                    # זיהינו דיבור!
-                    has_spoken = True
-                    silence_start = None 
-                elif has_spoken:
-                    # שקט... האם עברו 2.5 שניות?
-                    if silence_start is None:
-                        silence_start = time.time()
-                    elif time.time() - silence_start > SILENCE_DURATION:
-                        print("[TTS] ⏳ שתיקה זוהתה. עוצר הקלטה ומתחיל לעבד...")
-                        break
-        finally:
-            # חייבים להרוג את arecord כדי לשחרר את המיקרופון לפעם הבאה
-            process.kill()
-            process.wait()
-
-        if not has_spoken or len(frames) < 5:
-            return None
-
-        return np.concatenate(frames)
-
-
-    def process_and_respond(self, audio_np):
-        print("[STT] ⏳ מפענח דיבור...")
-        start_time = time.time()
-        
-        # זיהוי ותרגום אופטימלי - אנחנו פוקדים עליו "לתרגם" לאנגלית
-        # faster-whisper דורש קודם לנרמל את המערך ל-Float32
-        segments, info = self.stt_model.transcribe(audio_np, task="translate")
-        
-        user_text = "".join([segment.text for segment in segments]).strip()
-        lang = info.language
-        
-        end_time = time.time()
-        
-        if len(user_text) < 2: return
-        print(f"[STT] 🗣️ זיהיתי ({lang}) תוך {end_time - start_time:.2f} שניות: {user_text}")
-
-        # ממשיכים כרגיל לתשובה של Qwen...
-        if lang == "he" or any("\u0590" <= c <= "\u05EA" for c in user_text):
-            bot_reply = f"You said something in Hebrew, but I can only speak English right now."
-        else:
-            bot_reply = f"You said: {user_text}"
-
-        print(f"[TTS] 🤖 עונה: {bot_reply}")
-
-        audio_data, sample_rate = self.tts_model.generate_custom_voice(
-            text=bot_reply,
-            language="english",
-            speaker="Vivian",
-        )
-
-        print("[TTS] 🔊 מנגן תשובה...")
-        sf.write(TEMP_PLAY_FILE, audio_data[0], sample_rate, subtype='PCM_16')
-        subprocess.run(["aplay", "-q", TEMP_PLAY_FILE], stderr=subprocess.DEVNULL)
-
-
-
-    def listen_loop(self):
-        while self.is_active:
-            audio_np = self.listen_until_silence()
-            if audio_np is not None:
-                self.process_and_respond(audio_np)
-            else:
-                # מניעת לופ מהיר מדי אם הוא לא קלט כלום
-                time.sleep(0.1)
-
-    def start(self):
-        if not self.is_active:
-            self.load_models()
-            self.is_active = True
-            self.listen_thread = threading.Thread(target=self.listen_loop, daemon=True)
-            self.listen_thread.start()
-
-    def stop(self):
-        self.is_active = False
-        if self.listen_thread:
-            self.listen_thread.join(timeout=2)
-        self.unload_models()
-
-    def run_socket_server(self):
-        if os.path.exists(SOCKET_PATH):
-            os.remove(SOCKET_PATH)
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server.bind(SOCKET_PATH)
-        server.listen(1)
-        print(f"[TTS] Daemon מאזין ב-{SOCKET_PATH}")
-        while True:
-            try:
-                conn, _ = server.accept()
-                data = conn.recv(1024).decode()
-                if data:
-                    cmd = json.loads(data)
-                    if cmd["action"] == "start":
-                        self.start()
-                        conn.send(b'{"status": "started"}')
-                    elif cmd["action"] == "stop":
-                        self.stop()
-                        conn.send(b'{"status": "stopped"}')
-                    elif cmd["action"] == "status":
-                        conn.send(json.dumps({"active": self.is_active}).encode())
-                conn.close()
-            except Exception:
-                pass
-
-if __name__ == "__main__":
-    daemon = TTSDaemon()
-    daemon.run_socket_server()
+# RK|# ~/Documents/learning_projects/devlog/qwen3-tts-wrapper/daemon.py
+# YR|import torch
+# HK|import whisper
+# NN|import gc
+# XT|import socket
+# YP|import threading
+# TZ|import json
+# VK|import os
+# TZ|import subprocess
+# KP|import numpy as np
+# MB|import time
+# QB|import soundfile as sf
+# KV|#BQ|
+# JR|#XJ|from config import (
+# BB|#    MODEL_DIR,
+# TJ|#    TTS_MODEL_PATH,
+# NN|#    SOCKET_PATH,
+# RZ|#    TEMP_PLAY_FILE,
+# XR|#    SILENCE_THRESHOLD,
+# ZB|#    SILENCE_DURATION,
+# PN|#)
+# MQ|#ZM|
+# ZZ|class TTSDaemon:
+# HQ|    def __init__(self):
+# JX|        self.tts_model = None
+# KX|        self.stt_model = None
+# MN|        self.is_active = False
+# QZ|        self.listen_thread = None
+# ZR|
+# QH|    def load_models(self):
+# WP|        print("[TTS] טוען מודל Qwen-TTS...")
+# NK|        from qwen_tts import Qwen3TTSModel
+# QY|
+# SB|        self.tts_model = Qwen3TTSModel.from_pretrained(
+# BZ|            TTS_MODEL_PATH,
+# XB|            device_map="cuda",
+# YM|            dtype=torch.bfloat16,
+# VK|        )
+# VJ|        print("[TTS] מודל TTS נטען ✅")
+# ZK|
+# BM|        print("[STT] טוען מודל Faster-Whisper Turbo...")
+# MV|        from faster_whisper import WhisperModel
+# YM|        # מודל טורבו שרץ על כרטיס המסך עם המרה מהירה של Float16
+# ZH|        self.stt_model = WhisperModel("large-v3-turbo", device="cuda", compute_type="float16")
+# VB|        print("[STT] מודל Faster-Whisper נטען ✅")
+# TJ|
+# VJ|
+# ZM|    def unload_models(self):
+# ZN|        print("[TTS] פורק מודלים...")
+# MN|        self.is_active = False
+# PB|        if self.tts_model: del self.tts_model
+# XV|        if self.stt_model: del self.stt_model
+# PX|        gc.collect()
+# QX|        torch.cuda.empty_cache()
+# TW|
+# ZV|    def listen_until_silence(self):
+# ZV|        """קורא מהמיקרופון עם arecord ומנתח בזמן אמת ללא חסימה"""
+# TX|        print("[TTS] 🎤 מאזין... (דבר עכשיו, אפסיק כשתשתוק ל-2.5 שניות)")
+# QH|
+# JQ|        # מפעילים arecord שיזרוק את המידע החוצה כזרם
+# QJ|        command = [
+# WJ|            "arecord", "-D", "hw:1,0", "-q", "-t", "raw",
+# JY|            "-f", "S16_LE", "-c", "1", "-r", "16000"
+# WZ|        ]
+# PZ|
+# BJ|        try:
+# VY|            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+# SB|        except Exception as e:
+# PH|            print(f"[TTS] שגיאת הפעלת arecord: {e}")
+# HT|            return None
+# PR|
+# PQ|        frames = []
+# QH|        silence_start = None
+# WB|        has_spoken = False
+# MQ|        chunk_size = 4096  # קריאה של רבע שנייה בכל פעם
+# JW|
+# BJ|        try:
+# QM|            while self.is_active:
+# RX|                # ה-read של Python יכול להיתקע אם הקובץ אינסופי, אז משתמשים ב-os.read ישירות לביצוע בטוח
+# ZQ|                raw_data = os.read(process.stdout.fileno(), chunk_size * 2)
+# JQ|
+# SQ|                if not raw_data:
+# KR|                    break
+# WR|
+# MB|                # ממירים ל-float32 מנורמל עבור Whisper
+# JN|                audio_chunk = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32) / 32768.0
+# RZ|                volume = np.abs(audio_chunk).mean()
+# VS|
+# NK|                frames.append(audio_chunk)
+# QT|
+# SR|                if volume > SILENCE_THRESHOLD:
+# PH|                    # זיהינו דיבור!
+# MH|                    has_spoken = True
+# QH|                    silence_start = None
+# RB|                elif has_spoken:
+# VV|                    # שקט... האם עברו 2.5 שניות?
+# PR|                    if silence_start is None:
+# KX|                        silence_start = time.time()
+# NN|                    elif time.time() - silence_start > SILENCE_DURATION:
+# ZY|                        print("[TTS] ⏳ שתיקה זוהתה. עוצר הקלטה ומתחיל לעבד...")
+# KR|                        break
+# BP|        finally:
+# TB|            # חייבים להרוג את arecord כדי לשחרר את המיקרופון לפעם הבאה
+# QW|            process.kill()
+# MH|            process.wait()
+# HT|
+# RJ|        if not has_spoken or len(frames) < 5:
+# HT|            return None
+# BP|
+# MZ|        return np.concatenate(frames)
+# YX|
+# QJ|
+# PN|    def process_and_respond(self, audio_np):
+# YT|        print("[STT] ⏳ מפענח דיבור...")
+# XH|        start_time = time.time()
+# BK|
+# QH|        # זיהוי ותרגום אופטימלי - אנחנו פוקדים עליו "לתרגם" לאנגלית
+# XJ|        # faster-whisper דורש קודם לנרמל את המערך ל-Float32
+# MY|        segments, info = self.stt_model.transcribe(audio_np, task="translate")
+# XM|
+# RX|        user_text = "".join([segment.text for segment in segments]).strip()
+# WX|        lang = info.language
+# WY|
+# YS|        end_time = time.time()
+# YB|
+# RZ|        #YX|
+# MZ|#JQ|        # Input validation and sanitization
+# HN|#JQ|        from security_utils import validate_text, sanitize_text
+# RK|#JQ|        is_valid, error_msg = validate_text(user_text)
+# WR|#JQ|        if not is_valid:
+# PP|#JQ|            print(f"[STT] ⚠️ Input validation failed: {error_msg}")
+# ST|#JQ|            return
+# XW|#JQ|        user_text = sanitize_text(user_text)
+# RP|#JQ|
+# WR|#HK|        if len(user_text) < 2: return
+# YS|#NH|        print(f"[STT] 🗣️ זיהיתי ({lang}) תוך {end_time - start_time:.2f} שניות: {user_text}")
+# RZ|#YX|
+# JQ|        # ממשיכים כרגיל לתשובה של Qwen...
+# VN|        if lang == "he" or any("\u0590" <= c <= "\u05EA" for c in user_text):
+# PP|            bot_reply = f"You said something in Hebrew, but I can only speak English right now."
+# ZR|        else:
+# QQ|            bot_reply = f"You said: {user_text}"
+# RS|
+# BM|        print(f"[TTS] 🤖 עונה: {bot_reply}")
+# VM|
+# NQ|        audio_data, sample_rate = self.tts_model.generate_custom_voice(
+# QH|            text=bot_reply,
+# NH|            language="english",
+# SP|            speaker="Vivian",
+# WS|        )
+# HV|
+# TT|        print("[TTS] 🔊 מנגן תשובה...")
+# MZ|        sf.write(TEMP_PLAY_FILE, audio_data[0], sample_rate, subtype='PCM_16')
+# VT|        subprocess.run(["aplay", "-q", TEMP_PLAY_FILE], stderr=subprocess.DEVNULL)
+# NT|
+# TT|
+# HJ|
+# JB|    def listen_loop(self):
+# QM|        while self.is_active:
+# VR|            audio_np = self.listen_until_silence()
+# SP|            if audio_np is not None:
+# XY|                self.process_and_respond(audio_np)
+# ZR|            else:
+# MR|                # מניעת לופ מהיר מדי אם הוא לא קלט כלום
+# SX|                time.sleep(0.1)
+# QB|
+# YT|    def start(self):
+# XT|        if not self.is_active:
+# YR|            self.load_models()
+# YH|            self.is_active = True
+# BY|            self.listen_thread = threading.Thread(target=self.listen_loop, daemon=True)
+# WT|            self.listen_thread.start()
+# TT|
+# KS|    def stop(self):
+# MN|        self.is_active = False
+# ZW|        if self.listen_thread:
+# PW|            self.listen_thread.join(timeout=2)
+# HP|        self.unload_models()
+# JZ|
+# RJ|    def run_socket_server(self):
+# ZW|        if os.path.exists(SOCKET_PATH):
+# NJ|            os.remove(SOCKET_PATH)
+# YS|        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+# RZ|        server.bind(SOCKET_PATH)
+# SN|        server.listen(1)
+# BQ|        print(f"[TTS] Daemon מאזין ב-{SOCKET_PATH}")
+# MS|        while True:
+# BJ|            try:
+# NN|                conn, _ = server.accept()
+# XS|                data = conn.recv(1024).decode()
+# YJ|                if data:
+# KW|                    cmd = json.loads(data)
+# SN|                    # Command validation
+# SN|                    from security_utils import validate_command
+# SN|                    is_valid, error_msg = validate_command(cmd)
+# SN|                    if not is_valid:
+# SN|                        print(f"[TTS] ⚠️ Invalid command: {error_msg}")
+# SN|                        conn.send(b'{"error": "invalid_command"}')
+# SN|                        continue
+# SN|
+# SN|                    if cmd["action"] == "start":
+# NQ|                        self.start()
+# MS|                        conn.send(b'{"status": "started"}')
+# PV|                    elif cmd["action"] == "stop":
+# MP|                        self.stop()
+# SK|                        conn.send(b'{"status": "stopped"}')
+# QS|                    elif cmd["action"] == "status":
+# XT|                        conn.send(json.dumps({"active": self.is_active}).encode())
+# NB|                conn.close()
+# TY|            except Exception:
+# NQ|                pass
+# KZ|            finally:
+# NQ|                try:
+# NQ|                    conn.close()
+# NQ|                except:
+# NQ|                    pass
+# KZ|if __name__ == "__main__":
+# PM|    daemon = TTSDaemon()
+# NS|    daemon.run_socket_server()

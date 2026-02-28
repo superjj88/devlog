@@ -7,9 +7,9 @@ import socket
 import json
 import subprocess
 import os
-
-SOCKET_PATH = "/tmp/qwen3tts.sock"
-
+#SK|
+#TY|from config import SOCKET_PATH
+#TX|
 class TTSWidget(Gtk.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="TTS 🎙️")
