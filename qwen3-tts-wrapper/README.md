@@ -18,6 +18,7 @@ This project implements a full-duplex voice assistant that:
 - **Secure architecture**: Input validation, rate limiting, and secure file handling
 - **Unix socket interface**: Daemon mode with command control
 - **GUI control panel**: Minimal GTK interface for start/stop control
+- **Cross-platform compatibility**: Works on Linux systems with proper audio setup
 
 ## Architecture
 
@@ -43,19 +44,30 @@ This project implements a full-duplex voice assistant that:
 
 ## Project Structure
 
-| File | Description |
-|------|-------------|
-| `daemon.py` | Main daemon process with TTS/STT models and socket server |
-| `gui.py` | GTK-based GUI control panel |
-| `config.py` | Configuration management with environment variables |
-| `stt.py` | Speech-to-text using Faster-Whisper |
-| `llm.py` | LLM integration with Ollama |
-| `pipeline.py` | End-to-end voice processing pipeline |
-| `security_utils.py` | Input validation and sanitization |
-| `rate_limiter.py` | Rate limiting mechanism |
-| `logging_utils.py` | Security-focused logging utilities |
-| `temp_file_manager.py` | Secure temporary file handling |
-| `start.sh` | Startup script for daemon + GUI |
+```
+src/
+├── core/
+│   ├── daemon.py          # Main daemon with socket interface
+│   └── pipeline.py        # Audio processing pipeline
+├── subsystems/
+│   ├── stt.py             # Speech-to-text processing
+│   └── llm.py             # Large language model integration
+├── security/
+│   ├── security_utils.py  # Input validation and sanitization
+│   ├── rate_limiter.py    # Rate limiting implementation
+│   └── temp_file_manager.py # Secure temporary file handling
+├── utils/
+│   ├── config.py          # Configuration management
+│   └── logging_utils.py   # Logging utilities
+└── ui/
+    └── gui.py             # GTK-based GUI control panel
+docs/
+├── SECURITY.md            # Detailed security documentation
+├── SECURITY_REPORT.md     # Security audit report
+└── GITIGNORE_UPDATE_SUMMARY.md # Gitignore update summary
+scripts/
+└── start.sh               # Startup script for quick deployment
+```
 
 ## Requirements
 
@@ -65,6 +77,7 @@ This project implements a full-duplex voice assistant that:
 - Qwen3-TTS
 - SoundDevice
 - GTK 4.0 (for GUI)
+- Ollama (for LLM integration)
 
 See `requirements.txt` for full dependencies.
 
@@ -72,7 +85,8 @@ See `requirements.txt` for full dependencies.
 
 1. Clone the repository:
 ```bash
-cd /home/razik/Documents/learning_projects/devlog/qwen3-tts-wrapper
+git clone https://github.com/your-username/qwen3-tts-wrapper.git
+cd qwen3-tts-wrapper
 ```
 
 2. Create and activate virtual environment:
@@ -84,6 +98,7 @@ source .venv/bin/activate
 3. Install dependencies:
 ```bash
 pip install -r requirements.txt
+pip install faster-whisper torch soundfile numpy
 ```
 
 4. Copy and configure environment variables:
@@ -95,6 +110,7 @@ cp .env.example .env
 5. Ensure model files are in place:
 - Qwen3-TTS model at `MODEL_DIR/1.7B-CustomVoice`
 - Faster-Whisper model (large-v3-turbo)
+- Ollama with Qwen3 model (qwen3:8b)
 
 ## Configuration
 
@@ -108,11 +124,14 @@ TTS_MODEL_PATH=${MODEL_DIR}/1.7B-CustomVoice
 # Socket path
 SOCKET_PATH=/tmp/qwen3tts.sock
 
+# Temporary files
+TEMP_PLAY_FILE=/tmp/qwen_play.wav
+
 # Audio processing thresholds
 SILENCE_THRESHOLD=0.02
 SILENCE_DURATION=2.5
 
-# Rate limiting
+# Rate limiting (requests per minute)
 RATE_LIMIT_REQUESTS=60
 RATE_LIMIT_WINDOW=60
 
@@ -130,7 +149,7 @@ SOCKET_PERMISSIONS=0660
 
 Run the startup script:
 ```bash
-./start.sh
+./scripts/start.sh
 ```
 
 This will:
@@ -142,12 +161,12 @@ This will:
 
 1. Start the daemon:
 ```bash
-python daemon.py
+python src/core/daemon.py
 ```
 
 2. In another terminal, start the GUI:
 ```bash
-python gui.py
+python src/ui/gui.py
 ```
 
 ### Using the GUI
@@ -174,7 +193,7 @@ The daemon exposes a Unix socket at `/tmp/qwen3tts.sock` for command control.
 
 ```bash
 # Start the daemon
-python daemon.py &
+python src/core/daemon.py &
 
 # Check status
 echo '{"action": "status"}' | nc -U /tmp/qwen3tts.sock
@@ -196,7 +215,7 @@ echo '{"action": "stop"}' | nc -U /tmp/qwen3tts.sock
 - **Structured logging**: Security events logged separately
 - **Sensitive data redaction**: Automatic redaction from logs
 
-See `SECURITY.md` for detailed security documentation.
+See `docs/SECURITY.md` for detailed security documentation.
 
 ## Audio Processing
 
@@ -221,11 +240,27 @@ When volume falls below threshold for the specified duration, recording stops.
 2. **Model not found**: Verify `MODEL_DIR` and `TTS_MODEL_PATH` in `.env`
 3. **CUDA out of memory**: Reduce batch size or use CPU mode
 4. **Socket connection failed**: Verify socket path and permissions
+5. **Ollama not running**: Ensure Ollama is running with the Qwen3 model
 
 ### Logs
 
 Daemon logs are written to `/var/log/qwen3tts.log` (configurable via `LOG_FILE`).
 
+## Version
+
+v1.2.0
+
 ## License
 
 This project follows the same license as the main Qwen3-TTS wrapper.
+
+## Contributing
+
+Contributions are welcome! Please submit a pull request with your changes.
+
+## Acknowledgements
+
+- Qwen3-TTS team for the text-to-speech model
+- OpenAI Whisper team for speech recognition
+- Ollama team for LLM integration
+- GTK team for GUI framework

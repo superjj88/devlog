@@ -1,13 +1,16 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import time
 import numpy as np
 import sounddevice as sd
 import torch
-from stt import record_until_silence, transcribe
-from llm import chat
+from src.subsystems.stt import record_until_silence, transcribe
+from src.subsystems.llm import chat
 
 # --- Qwen3-TTS Setup ---
 print("⏳ Loading Qwen3-TTS model...")
-from qwen_tts import Qwen3TTSModel
+from qwen_tts.inference.qwen3_tts_model import Qwen3TTSModel
 import torch
 import sounddevice as sd
 

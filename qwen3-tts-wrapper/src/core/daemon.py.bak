@@ -11,14 +11,14 @@
 # MB|import time
 # QB|import soundfile as sf
 # KV|#BQ|
-# JR|#XJ|from config import (
-# BB|#    MODEL_DIR,
-# TJ|#    TTS_MODEL_PATH,
-# NN|#    SOCKET_PATH,
-# RZ|#    TEMP_PLAY_FILE,
-# XR|#    SILENCE_THRESHOLD,
-# ZB|#    SILENCE_DURATION,
-# PN|#)
+from src.utils.config import (
+    MODEL_DIR,
+    TTS_MODEL_PATH,
+    SOCKET_PATH,
+    TEMP_PLAY_FILE,
+    SILENCE_THRESHOLD,
+    SILENCE_DURATION,
+)
 # MQ|#ZM|
 # ZZ|class TTSDaemon:
 # HQ|    def __init__(self):
@@ -124,13 +124,12 @@
 # YS|        end_time = time.time()
 # YB|
 # RZ|        #YX|
-# MZ|#JQ|        # Input validation and sanitization
-# HN|#JQ|        from security_utils import validate_text, sanitize_text
-# RK|#JQ|        is_valid, error_msg = validate_text(user_text)
-# WR|#JQ|        if not is_valid:
-# PP|#JQ|            print(f"[STT] ⚠️ Input validation failed: {error_msg}")
-# ST|#JQ|            return
-# XW|#JQ|        user_text = sanitize_text(user_text)
+        # Input validation and sanitization
+        from src.security.security_utils import validate_text, sanitize_text
+        if len(user_text) < 2: return
+        print(f"[STT] 🗣️ זיהיתי ({lang}) תוך {end_time - start_time:.2f} שניות: {user_text}")
+        from src.security.security_utils import validate_text, sanitize_text
+        if len(user_text) < 2: return
 # RP|#JQ|
 # WR|#HK|        if len(user_text) < 2: return
 # YS|#NH|        print(f"[STT] 🗣️ זיהיתי ({lang}) תוך {end_time - start_time:.2f} שניות: {user_text}")
@@ -190,12 +189,7 @@
 # XS|                data = conn.recv(1024).decode()
 # YJ|                if data:
 # KW|                    cmd = json.loads(data)
-# SN|                    # Command validation
-# SN|                    from security_utils import validate_command
-# SN|                    is_valid, error_msg = validate_command(cmd)
-# SN|                    if not is_valid:
-# SN|                        print(f"[TTS] ⚠️ Invalid command: {error_msg}")
-# SN|                        conn.send(b'{"error": "invalid_command"}')
+        from src.security.security_utils import validate_command
 # SN|                        continue
 # SN|
 # SN|                    if cmd["action"] == "start":
